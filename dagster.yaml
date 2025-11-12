@@ -1,0 +1,30 @@
+# Dagster instance configuration
+storage:
+  postgres:
+    postgres_url:
+      env: DATABASE_URL
+
+run_launcher:
+  module: dagster.core.launcher.sync
+  class: SyncInProcessRunLauncher
+
+run_coordinator:
+  module: dagster.core.run_coordinator.queued_run_coordinator
+  class: QueuedRunCoordinator
+
+schedule_storage:
+  module: dagster_postgres.schedule_storage.schedule_storage
+  class: DagsterPostgresScheduleStorage
+  config:
+    postgres_url:
+      env: DATABASE_URL
+
+event_log_storage:
+  module: dagster_postgres.event_log.event_log
+  class: DagsterPostgresEventLogStorage
+  config:
+    postgres_url:
+      env: DATABASE_URL
+
+telemetry:
+  enabled: false
