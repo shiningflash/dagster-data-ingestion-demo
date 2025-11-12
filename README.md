@@ -1,16 +1,20 @@
-# Dagster Data Ingestion Demo (Open-Meteo Weather Data)
+# Dagster Weather Data Ingestion Pipeline
 
-A complete ETL pipeline demonstration using **Dagster**, **PostgreSQL**, and **Docker** to fetch, transform, and load weather data from the Open-Meteo API.
+A **configuration-driven**, **scalable** ETL pipeline using **Dagster**, **PostgreSQL**, and **Docker** to fetch, transform, and load weather data from multiple APIs with comprehensive data quality validation.
 
-## 🌟 Project Overview
+## 🌟 Key Features
 
-This project showcases a modern data engineering pipeline that:
+This project showcases a **modern, enterprise-ready data engineering pipeline** that:
 
-- **Fetches** hourly temperature data from the [Open-Meteo API](https://open-meteo.com/en/docs) for Berlin
-- **Transforms** the raw data using pandas (cleaning, formatting, validation)
-- **Loads** the processed data into a PostgreSQL database
-- **Orchestrates** everything with Dagster for monitoring, scheduling, and data lineage
-- **Runs** completely in Docker containers for easy deployment
+- **📡 Multi-Source Data Ingestion**: Configurable data sources via JSON files - easily add new weather stations, APIs, or data providers
+- **🔧 Configuration-Driven**: Complete control over data sources, schedules, validation rules, and database schemas through JSON configuration
+- **🏗️ Scalable Architecture**: Supports multiple cities/locations simultaneously with individual or batch processing
+- **✅ Data Quality Validation**: Configurable data quality checks, range validations, and null value handling
+- **🛡️ Error Resilience**: Comprehensive error handling, retry logic, and graceful degradation
+- **📊 Flexible Scheduling**: Per-source scheduling with cron expressions
+- **🧹 Automated Cleanup**: Configurable data retention policies
+- **🐳 Fully Containerized**: Complete Docker setup for development and production
+- **📈 Observable**: Rich logging, monitoring, and Dagster UI for pipeline visibility
 
 ## 🏗️ Architecture
 
@@ -43,11 +47,19 @@ dagster-data-ingestion-demo/
 │   │   └── weather_job.py        # Dagster job definition
 │   ├── repository.py             # Dagster repository
 │   └── workspace.yaml            # Dagster workspace config
-├── Dockerfile                    # Container setup
-├── docker-compose.yml           # Multi-service orchestration
-├── requirements.txt             # Python dependencies
-├── .env                        # Environment variables
-└── README.md                   # This file
+├── config/
+│   ├── data_sources.json        # API configuration
+│   ├── pipeline_settings.json   # Pipeline settings
+│   └── environments.json        # Environment configs
+├── utils/
+│   ├── config_loader.py         # Configuration loader
+│   ├── api_clients.py           # API client factory
+│   └── database.py              # Database utilities
+├── Dockerfile                   # Container setup
+├── docker-compose.yml          # Multi-service orchestration
+├── requirements.txt            # Python dependencies
+├── .env                       # Environment variables
+└── README.md                  # This file
 ```
 
 ## 🚀 Quick Start
@@ -114,15 +126,51 @@ You'll see the Dagster web interface with your `weather_etl_job` ready to run.
 Check that data was successfully loaded:
 
 ```bash
-docker exec -it dagster_postgres psql -U dagster -d weather -c "SELECT * FROM weather_data LIMIT 10;"
+# Check table structure
+docker exec -it dagster_postgres psql -U dagster -d weather -c "\dt"
+
+# View recent weather data
+docker exec -it dagster_postgres psql -U dagster -d weather -c "
+SELECT 
+    timestamp,
+    temperature_2m,
+    relative_humidity_2m,
+    wind_speed_10m,
+    latitude,
+    longitude,
+    source_id
+FROM weather_data 
+ORDER BY timestamp DESC 
+LIMIT 10;"
+
+# Count total records and data range
+docker exec -it dagster_postgres psql -U dagster -d weather -c "
+SELECT 
+    COUNT(*) as total_records,
+    MIN(timestamp) as earliest_data,
+    MAX(timestamp) as latest_data
+FROM weather_data;"
+
+# Data by location
+docker exec -it dagster_postgres psql -U dagster -d weather -c "
+SELECT 
+    source_id,
+    ROUND(latitude::numeric, 2) as lat,
+    ROUND(longitude::numeric, 2) as lng,
+    COUNT(*) as record_count,
+    ROUND(AVG(temperature_2m)::numeric, 2) as avg_temp_c
+FROM weather_data 
+GROUP BY source_id, latitude, longitude
+ORDER BY source_id;"
 ```
 
 Expected output:
 ```
-     timestamp      | temperature_2m | latitude | longitude
---------------------+----------------+----------+-----------
- 2024-11-12 00:00:00|           8.2  |    52.52 |     13.405
- 2024-11-12 01:00:00|           7.8  |    52.52 |     13.405
+     timestamp      | temperature_2m | relative_humidity_2m | wind_speed_10m | latitude | longitude | source_id
+--------------------+----------------+---------------------+---------------+----------+-----------+------------------
+ 2024-11-12 14:00:00|           8.2  |                  75 |           5.4 |    52.52 |     13.405| openmeteo_berlin
+ 2024-11-12 14:00:00|           9.1  |                  80 |           3.2 |    51.51 |     -0.13 | openmeteo_london
+ 2024-11-12 13:00:00|           7.8  |                  78 |           4.8 |    52.52 |     13.405| openmeteo_berlin
  ...
 ```
 
@@ -130,119 +178,188 @@ Expected output:
 
 ### Pipeline Steps
 
-1. **Fetch (`fetch_weather_data`)**: 
-   - Connects to Open-Meteo API with caching and retry logic
-   - Fetches hourly temperature data for Berlin
-   - Returns pandas DataFrame
+1. **Fetch (`fetch_all_weather_data`)**: 
+   - Connects to Open-Meteo API for all enabled sources
+   - Fetches hourly weather data (temperature, humidity, wind speed)
+   - Includes retry logic and error handling
+   - Returns combined data from all sources
 
-2. **Transform (`transform_weather_data`)**:
-   - Renames columns for database consistency
+2. **Transform (`transform_all_weather_data`)**:
+   - Standardizes column names across all sources
    - Validates and cleans data types
-   - Removes null values
-   - Rounds temperature values
+   - Removes null values and duplicates
+   - Adds source identification
 
-3. **Load (`load_weather_to_db`)**:
+3. **Load (`load_all_weather_to_db`)**:
    - Creates PostgreSQL table if needed
    - Removes existing data for the same time period
    - Inserts new data using SQLAlchemy
+   - Handles data conflicts gracefully
+
+### Current Data Sources
+
+Based on your `config/data_sources.json`:
+
+| Location | Status | Coordinates | Source ID |
+|----------|--------|-------------|-----------|
+| Berlin   | ✅ Enabled | 52.52°N, 13.405°E | `openmeteo_berlin` |
+| London   | ✅ Enabled | 51.51°N, -0.13°W | `openmeteo_london` |
+| Tokyo    | ❌ Disabled | 35.68°N, 139.65°E | `openmeteo_tokyo` |
 
 ### Data Schema
 
 The `weather_data` table has the following structure:
 
-| Column         | Type     | Description                    |
-|----------------|----------|--------------------------------|
-| `timestamp`    | DateTime | Date and time (hourly)        |
-| `temperature_2m` | Float  | Temperature at 2 meters (°C)  |
-| `latitude`     | Float    | Location latitude              |
-| `longitude`    | Float    | Location longitude             |
+| Column               | Type     | Description                    |
+|---------------------|----------|--------------------------------|
+| `timestamp`         | DateTime | Date and time (hourly)        |
+| `temperature_2m`    | Float    | Temperature at 2 meters (°C)  |
+| `relative_humidity_2m` | Float | Relative humidity (%)         |
+| `wind_speed_10m`    | Float    | Wind speed at 10 meters (m/s) |
+| `latitude`          | Float    | Location latitude              |
+| `longitude`         | Float    | Location longitude             |
+| `source_id`         | String   | Data source identifier         |
 
-## 📊 Features
+## 📊 Data Analysis Examples
 
-- **🔄 Caching**: Open-Meteo requests are cached for 1 hour
-- **🔁 Retry Logic**: Automatic retry on API failures
-- **📝 Comprehensive Logging**: Detailed logs at each pipeline step
-- **🚫 Duplicate Prevention**: Removes existing data before inserting new records
-- **🛡️ Error Handling**: Graceful error handling with informative messages
-- **🐳 Fully Containerized**: No local Python setup required
-- **📱 Web UI**: Beautiful Dagster interface for monitoring and management
+### Weather Trends
+```sql
+-- Temperature comparison between cities
+SELECT 
+    source_id,
+    DATE(timestamp) as date,
+    ROUND(AVG(temperature_2m)::numeric, 2) as avg_temp,
+    ROUND(MIN(temperature_2m)::numeric, 2) as min_temp,
+    ROUND(MAX(temperature_2m)::numeric, 2) as max_temp
+FROM weather_data 
+WHERE timestamp >= CURRENT_DATE - INTERVAL '7 days'
+GROUP BY source_id, DATE(timestamp)
+ORDER BY date DESC, source_id;
+```
 
-## 🛠️ Development
+### Data Quality Check
+```sql
+-- Check for data completeness
+SELECT 
+    source_id,
+    COUNT(*) as total_records,
+    COUNT(temperature_2m) as temp_records,
+    COUNT(relative_humidity_2m) as humidity_records,
+    COUNT(wind_speed_10m) as wind_records,
+    ROUND(100.0 * COUNT(temperature_2m) / COUNT(*), 2) as temp_completeness
+FROM weather_data 
+GROUP BY source_id;
+```
 
-### Local Development Setup
+## 🛠️ Configuration Management
 
-If you want to develop locally without Docker:
+### Adding New Weather Stations
 
-1. **Install Python dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+To add a new location, edit `config/data_sources.json`:
 
-2. **Set up PostgreSQL** (or use Docker for just the DB):
-   ```bash
-   docker run --name postgres -e POSTGRES_DB=weather -e POSTGRES_USER=dagster -e POSTGRES_PASSWORD=dagster123 -p 5432:5432 -d postgres:15
-   ```
+```json
+{
+  "id": "openmeteo_paris",
+  "name": "Open-Meteo Paris Weather", 
+  "enabled": true,
+  "api_type": "openmeteo",
+  "api_config": {
+    "base_url": "https://api.open-meteo.com/v1/forecast",
+    "latitude": 48.8566,
+    "longitude": 2.3522,
+    "location_name": "Paris",
+    "parameters": ["temperature_2m", "relative_humidity_2m", "wind_speed_10m"],
+    "forecast_days": 1
+  }
+}
+```
 
-3. **Update `.env`** for local development:
-   ```bash
-   POSTGRES_HOST=localhost
-   DATABASE_URL=postgresql://dagster:dagster123@localhost:5432/weather
-   ```
-
-4. **Run Dagster webserver locally**:
-   ```bash
-   cd dagster_project
-   dagster-webserver -w workspace.yaml
-   ```
-
-### Adding New Features
-
-- **New ops**: Add to `dagster_project/ops/`
-- **New jobs**: Add to `dagster_project/jobs/`
-- **Update repository**: Import and register in `repository.py`
+The pipeline will automatically pick up the new source on the next run!
 
 ## 🔍 Troubleshooting
 
 ### Common Issues
 
-**1. Port 3000 already in use**
+**1. No data in database**
 ```bash
-# Find and kill the process
-lsof -ti:3000 | xargs kill -9
+# Check if pipeline ran successfully
+docker logs dagster_daemon | grep -i error
+
+# Check recent pipeline runs in Dagster UI
+open http://localhost:3000
 ```
 
-**2. Database connection errors**
+**2. API connection errors**
+```bash
+# Test API connectivity manually
+curl "https://api.open-meteo.com/v1/forecast?latitude=52.52&longitude=13.405&hourly=temperature_2m&past_days=1"
+```
+
+**3. Database connection errors**
 ```bash
 # Check if PostgreSQL container is running
 docker logs dagster_postgres
+
+# Test database connection
+docker exec -it dagster_postgres psql -U dagster -d weather -c "SELECT NOW();"
 ```
 
-**3. Dagster not finding modules**
+**4. Empty results**
 ```bash
-# Rebuild containers
-docker-compose down
-docker-compose up --build
+# Check what data sources are enabled
+cat config/data_sources.json | jq '.data_sources[] | select(.enabled == true) | .name'
+
+# Check pipeline execution logs
+docker logs dagster_webserver | tail -50
 ```
 
-**4. API rate limiting**
-The Open-Meteo API is free and has rate limits. The pipeline includes caching to minimize requests.
+### Development and Testing
 
-### Logs and Debugging
+**Run specific pipeline steps:**
+```bash
+# In Dagster UI → Launchpad → Op Selection:
+# - Select only "fetch_all_weather_data" to test API
+# - Select only "load_all_weather_to_db" to test database
+```
 
-- **View Web UI logs**: `docker logs dagster_webserver`
-- **View Daemon logs**: `docker logs dagster_daemon`
-- **View PostgreSQL logs**: `docker logs dagster_postgres`
+**Reset database:**
+```bash
+# Drop and recreate table
+docker exec -it dagster_postgres psql -U dagster -d weather -c "DROP TABLE IF EXISTS weather_data;"
+```
 
-## 📈 Next Steps
+## 📈 Monitoring & Observability
 
-Potential enhancements:
+### Key Metrics to Watch
 
-- **📅 Scheduling**: Add daily/hourly schedules with Dagster sensors
-- **🌍 Multi-city**: Extend to fetch data for multiple cities
-- **📊 Analytics**: Add data quality checks and metrics
-- **☁️ Cloud Deploy**: Deploy to AWS/GCP/Azure
-- **📧 Alerting**: Add email/Slack notifications for pipeline failures
-- **🏪 Data Catalog**: Integrate with data catalog systems
+1. **Data Freshness**: Latest timestamp in database
+2. **Data Volume**: Records per hour/day
+3. **Success Rate**: Pipeline success percentage
+4. **API Response Time**: Open-Meteo API performance
+
+### Alerting Setup
+
+Monitor these conditions:
+- Pipeline failures (check Dagster logs)
+- No new data for > 2 hours
+- Temperature readings outside expected ranges
+- API rate limiting (429 errors)
+
+## 🚀 Next Steps & Extensions
+
+### Easy Enhancements:
+- **📅 Scheduling**: Add hourly/daily schedules
+- **🌍 More Cities**: Add major world cities
+- **📊 Data Quality**: Add validation rules
+- **📈 Metrics**: Add temperature alerts
+- **🔔 Notifications**: Slack/email alerts
+
+### Advanced Features:
+- **☁️ Cloud Deployment**: AWS/GCP/Azure
+- **📊 Dashboard**: Grafana/Superset visualization
+- **🏪 Data Lake**: Store raw data in S3/GCS
+- **🤖 ML Pipeline**: Weather prediction models
+- **📡 Real-time**: Streaming data ingestion
 
 ## 📚 Resources
 
@@ -252,3 +369,15 @@ Potential enhancements:
 - [Docker Compose Reference](https://docs.docker.com/compose/)
 
 ---
+
+**🎯 Quick Test Commands:**
+```bash
+# Start pipeline
+docker-compose up --build
+
+# Check data
+docker exec -it dagster_postgres psql -U dagster -d weather -c "SELECT COUNT(*), MAX(timestamp) FROM weather_data;"
+
+# View recent data
+docker exec -it dagster_postgres psql -U dagster -d weather -c "SELECT * FROM weather_data ORDER BY timestamp DESC LIMIT 5;"
+```

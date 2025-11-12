@@ -4,6 +4,7 @@ FROM python:3.12-slim
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV DAGSTER_HOME=/opt/dagster/dagster_home
+ENV PYTHONPATH=/opt/dagster/app
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -24,6 +25,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the project code
 COPY dagster_project/ ./dagster_project/
+COPY utils/ ./utils/
+COPY config/ ./config/
 COPY .env .
 COPY dagster.yaml $DAGSTER_HOME/
 

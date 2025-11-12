@@ -1,141 +1,194 @@
 """
-Op to load weather data into PostgreSQL database.
+Op to load weather data into database using configuration.
 """
 
-import os
-
 import pandas as pd
-from dagster import OpExecutionContext, op
-from dotenv import load_dotenv
-from sqlalchemy import Column, DateTime, Float, MetaData, Table, create_engine, text
-from sqlalchemy.ext.declarative import declarative_base
+from dagster import Config, OpExecutionContext, op
+from pydantic import Field
 
-# Load environment variables
-load_dotenv()
-
-Base = declarative_base()
+from utils.config_loader import get_config_loader
+from utils.database import get_database_manager
 
 
-def get_database_engine():
-    """Create and return SQLAlchemy database engine."""
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise ValueError("DATABASE_URL environment variable not set")
+class LoadWeatherConfig(Config):
+    """Configuration for load weather op."""
 
-    engine = create_engine(database_url)
-    return engine
+    source_id: str = Field(description="ID of the data source being loaded")
 
 
-def create_weather_table(engine):
-    """Create the weather_data table if it doesn't exist."""
-    metadata = MetaData()
-
-    weather_table = Table(
-        "weather_data",
-        metadata,
-        Column("timestamp", DateTime, primary_key=True),
-        Column("temperature_2m", Float, nullable=False),
-        Column("latitude", Float, nullable=False),
-        Column("longitude", Float, nullable=False),
-    )
-
-    # Create table if it doesn't exist
-    metadata.create_all(engine)
-    return weather_table
-
-
-@op(description="Load transformed weather data into PostgreSQL database")
+@op(description="Load transformed weather data into configured database")
 def load_weather_to_db(
-    context: OpExecutionContext, transformed_data: pd.DataFrame
+    context: OpExecutionContext,
+    config: LoadWeatherConfig,
+    transformed_data: pd.DataFrame,
 ) -> str:
     """
-    Load the transformed weather data into PostgreSQL database.
+    Load the transformed weather data into the configured database.
 
     Args:
+        config: Configuration containing source_id
         transformed_data: Transformed weather DataFrame
 
     Returns:
         Success message with record count
     """
-    context.log.info(
-        f"Starting database load of {len(transformed_data)} weather records"
-    )
+    source_id = config.source_id
+    context.log.info(f"Loading weather data to database for source: {source_id}")
 
     try:
-        # Create database engine
-        engine = get_database_engine()
-        context.log.info("Successfully connected to PostgreSQL database")
+        # Get configuration for this data source
+        config_loader = get_config_loader()
+        data_source = config_loader.get_data_source(source_id)
 
-        # Create table if it doesn't exist
-        create_weather_table(engine)
-        context.log.info("Weather table created or verified to exist")
+        if not data_source:
+            raise ValueError(f"Data source configuration not found: {source_id}")
 
         # Check if we have data to insert
         if transformed_data.empty:
-            context.log.warning("No data to insert - DataFrame is empty")
+            context.log.warning(
+                f"No data to insert for source {source_id} - DataFrame is empty"
+            )
             return "No data to insert"
 
-        # Clear existing data for today (optional - remove if you want to accumulate data)
-        with engine.connect() as connection:
-            # Get today's date range from the new data
-            min_date = transformed_data["timestamp"].min()
-            max_date = transformed_data["timestamp"].max()
-
-            context.log.info(f"Data date range: {min_date} to {max_date}")
-
-            # Delete existing data for the same date range to avoid duplicates
-            delete_query = text(
-                "DELETE FROM weather_data WHERE timestamp >= :min_date AND timestamp <= :max_date"
-            )
-            result = connection.execute(
-                delete_query, {"min_date": min_date, "max_date": max_date}
-            )
-            connection.commit()
-
-            if result.rowcount > 0:
-                context.log.info(
-                    f"Deleted {result.rowcount} existing records in the date range"
-                )
-
-        # Insert new data using pandas to_sql method
-        transformed_data.to_sql(
-            name="weather_data",
-            con=engine,
-            if_exists="append",
-            index=False,
-            method="multi",
-        )
-
         context.log.info(
-            f"Successfully inserted {len(transformed_data)} records into weather_data table"
+            f"Loading {len(transformed_data)} records for {data_source.name}"
+        )
+        context.log.info(
+            f"Target table: {data_source.database['schema']}.{data_source.database['table']}"
         )
 
-        # Verify the insertion by counting total records
-        with engine.connect() as connection:
-            count_query = text("SELECT COUNT(*) as count FROM weather_data")
-            result = connection.execute(count_query)
-            total_records = result.fetchone()[0]
-            context.log.info(f"Total records in weather_data table: {total_records}")
+        # Get database manager and load data
+        db_manager = get_database_manager()
+        records_loaded = db_manager.load_data(data_source, transformed_data)
 
-            # Show a sample of the inserted data
-            sample_query = text(
-                "SELECT * FROM weather_data ORDER BY timestamp DESC LIMIT 3"
+        # Get table information for verification
+        table_info = db_manager.get_table_info(data_source)
+        context.log.info(
+            f"Table now contains {table_info['record_count']} total records"
+        )
+
+        if table_info.get("min_date") and table_info.get("max_date"):
+            context.log.info(
+                f"Data date range in table: {table_info['min_date']} to {table_info['max_date']}"
             )
-            sample_result = connection.execute(sample_query)
-            context.log.info("Sample of inserted data:")
-            for row in sample_result:
-                context.log.info(
-                    f"  {row.timestamp} | {row.temperature_2m}°C | ({row.latitude}, {row.longitude})"
-                )
-
-        engine.dispose()
 
         success_message = (
-            f"Successfully loaded {len(transformed_data)} weather records to database"
+            f"Successfully loaded {records_loaded} records for {data_source.name}"
         )
         context.log.info(success_message)
+
         return success_message
 
     except Exception as e:
-        context.log.error(f"Error loading data to database: {str(e)}")
+        context.log.error(
+            f"Error loading data to database for source {source_id}: {str(e)}"
+        )
+        raise
+
+
+@op(description="Load weather data from multiple sources into database")
+def load_all_weather_to_db(
+    context: OpExecutionContext, transformed_data_dict: dict
+) -> dict:
+    """
+    Load weather data from multiple sources into their respective database tables.
+
+    Args:
+        transformed_data_dict: Dictionary mapping source_id to transformed DataFrame
+
+    Returns:
+        Dictionary with load results for each source
+    """
+    context.log.info(f"Loading weather data for {len(transformed_data_dict)} sources")
+
+    if not transformed_data_dict:
+        context.log.warning("No data to load")
+        return {}
+
+    results = {}
+    total_records_loaded = 0
+
+    for source_id, transformed_df in transformed_data_dict.items():
+        context.log.info(f"Loading data for source: {source_id}")
+
+        try:
+            if transformed_df.empty:
+                context.log.warning(f"No data to load for source {source_id}")
+                results[source_id] = "No data to load"
+                continue
+
+            # Create config for this source
+            config = LoadWeatherConfig(source_id=source_id)
+
+            # Load the data
+            result = load_weather_to_db.configured(config)(context, transformed_df)
+
+            results[source_id] = result
+            total_records_loaded += len(transformed_df)
+
+            context.log.info(f"✓ {source_id}: {len(transformed_df)} records loaded")
+
+        except Exception as e:
+            error_msg = f"Failed to load data: {str(e)}"
+            results[source_id] = error_msg
+            context.log.error(f"✗ {source_id}: {error_msg}")
+            # Continue with other sources
+            continue
+
+    context.log.info(
+        f"Loading complete: {total_records_loaded} total records loaded across all sources"
+    )
+
+    return results
+
+
+@op(description="Clean up old data based on retention policies")
+def cleanup_old_weather_data(context: OpExecutionContext) -> dict:
+    """
+    Clean up old weather data based on configured retention policies.
+
+    Returns:
+        Dictionary with cleanup results for each source
+    """
+    context.log.info("Starting cleanup of old weather data")
+
+    try:
+        config_loader = get_config_loader()
+        data_sources = config_loader.get_data_sources(
+            enabled_only=False
+        )  # Check all sources
+
+        if not data_sources:
+            context.log.warning("No data sources found for cleanup")
+            return {}
+
+        db_manager = get_database_manager()
+        results = {}
+
+        for data_source in data_sources:
+            retention_config = data_source.data_retention
+
+            if not retention_config.get("cleanup_enabled", True):
+                context.log.info(f"Cleanup disabled for source: {data_source.name}")
+                results[data_source.id] = "Cleanup disabled"
+                continue
+
+            context.log.info(f"Cleaning up data for source: {data_source.name}")
+
+            try:
+                db_manager.cleanup_old_data(data_source)
+                results[data_source.id] = "Cleanup successful"
+                context.log.info(f"✓ Cleanup completed for {data_source.name}")
+
+            except Exception as e:
+                error_msg = f"Cleanup failed: {str(e)}"
+                results[data_source.id] = error_msg
+                context.log.error(f"✗ Cleanup failed for {data_source.name}: {str(e)}")
+                continue
+
+        context.log.info("Cleanup process completed")
+        return results
+
+    except Exception as e:
+        context.log.error(f"Error during cleanup process: {str(e)}")
         raise

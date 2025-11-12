@@ -4,9 +4,5 @@ dagster-postgres
 sqlalchemy
 psycopg2-binary
 pandas
-numpy
 requests
-requests-cache
-retry-requests
-openmeteo-requests
 python-dotenv

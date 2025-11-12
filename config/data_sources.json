@@ -1,0 +1,127 @@
+{
+  "data_sources": [
+    {
+      "id": "openmeteo_berlin",
+      "name": "Open-Meteo Berlin Weather",
+      "enabled": true,
+      "api_type": "openmeteo",
+      "api_config": {
+        "base_url": "https://api.open-meteo.com/v1/forecast",
+        "latitude": 52.52,
+        "longitude": 13.405,
+        "location_name": "Berlin",
+        "hourly_params": ["temperature_2m", "relative_humidity_2m", "wind_speed_10m"],
+        "daily_params": ["temperature_2m_max", "temperature_2m_min"],
+        "timezone": "Europe/Berlin",
+        "forecast_days": 1
+      },
+      "schedule": {
+        "interval": "hourly",
+        "cron": "0 * * * *",
+        "start_time": "2024-01-01T00:00:00",
+        "enabled": true
+      },
+      "database": {
+        "schema": "weather",
+        "table": "berlin_weather_data",
+        "columns": {
+          "timestamp": "TIMESTAMP",
+          "temperature_2m": "FLOAT",
+          "relative_humidity_2m": "FLOAT", 
+          "wind_speed_10m": "FLOAT",
+          "latitude": "FLOAT",
+          "longitude": "FLOAT",
+          "location_name": "VARCHAR(100)"
+        },
+        "primary_key": ["timestamp", "location_name"],
+        "indexes": ["timestamp", "location_name"]
+      },
+      "data_retention": {
+        "days": 365,
+        "cleanup_enabled": true
+      }
+    },
+    {
+      "id": "openmeteo_london",
+      "name": "Open-Meteo London Weather",
+      "enabled": true,
+      "api_type": "openmeteo",
+      "api_config": {
+        "base_url": "https://api.open-meteo.com/v1/forecast",
+        "latitude": 51.5074,
+        "longitude": -0.1278,
+        "location_name": "London",
+        "hourly_params": ["temperature_2m", "relative_humidity_2m", "wind_speed_10m"],
+        "daily_params": ["temperature_2m_max", "temperature_2m_min"],
+        "timezone": "Europe/London",
+        "forecast_days": 1
+      },
+      "schedule": {
+        "interval": "hourly",
+        "cron": "5 * * * *",
+        "start_time": "2024-01-01T00:00:00",
+        "enabled": true
+      },
+      "database": {
+        "schema": "weather",
+        "table": "london_weather_data",
+        "columns": {
+          "timestamp": "TIMESTAMP",
+          "temperature_2m": "FLOAT",
+          "relative_humidity_2m": "FLOAT",
+          "wind_speed_10m": "FLOAT", 
+          "latitude": "FLOAT",
+          "longitude": "FLOAT",
+          "location_name": "VARCHAR(100)"
+        },
+        "primary_key": ["timestamp", "location_name"],
+        "indexes": ["timestamp", "location_name"]
+      },
+      "data_retention": {
+        "days": 365,
+        "cleanup_enabled": true
+      }
+    },
+    {
+      "id": "openmeteo_tokyo",
+      "name": "Open-Meteo Tokyo Weather",
+      "enabled": false,
+      "api_type": "openmeteo",
+      "api_config": {
+        "base_url": "https://api.open-meteo.com/v1/forecast",
+        "latitude": 35.6762,
+        "longitude": 139.6503,
+        "location_name": "Tokyo",
+        "hourly_params": ["temperature_2m", "relative_humidity_2m", "wind_speed_10m"],
+        "daily_params": ["temperature_2m_max", "temperature_2m_min"],
+        "timezone": "Asia/Tokyo",
+        "forecast_days": 1
+      },
+      "schedule": {
+        "interval": "hourly", 
+        "cron": "10 * * * *",
+        "start_time": "2024-01-01T00:00:00",
+        "enabled": false
+      },
+      "database": {
+        "schema": "weather",
+        "table": "tokyo_weather_data",
+        "columns": {
+          "timestamp": "TIMESTAMP",
+          "temperature_2m": "FLOAT",
+          "relative_humidity_2m": "FLOAT",
+          "wind_speed_10m": "FLOAT",
+          "latitude": "FLOAT",
+          "longitude": "FLOAT",
+          "location_name": "VARCHAR(100)"
+        },
+        "primary_key": ["timestamp", "location_name"],
+        "indexes": ["timestamp", "location_name"]
+      },
+      "data_retention": {
+        "days": 365,
+        "cleanup_enabled": true
+      }
+    }
+  ]
+}

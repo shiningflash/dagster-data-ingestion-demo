@@ -1,0 +1,59 @@
+{
+  "environments": {
+    "development": {
+      "database": {
+        "host": "localhost",
+        "port": 5432,
+        "database": "weather_dev",
+        "username": "dagster",
+        "password": "dagster123",
+        "ssl_mode": "disable"
+      },
+      "api": {
+        "rate_limit_per_minute": 60,
+        "cache_enabled": true,
+        "debug_mode": true
+      },
+      "logging": {
+        "level": "DEBUG"
+      }
+    },
+    "docker": {
+      "database": {
+        "host": "postgres",
+        "port": 5432,
+        "database": "weather",
+        "username": "dagster", 
+        "password": "dagster123",
+        "ssl_mode": "disable"
+      },
+      "api": {
+        "rate_limit_per_minute": 120,
+        "cache_enabled": true,
+        "debug_mode": false
+      },
+      "logging": {
+        "level": "INFO"
+      }
+    },
+    "production": {
+      "database": {
+        "host": "${DB_HOST}",
+        "port": "${DB_PORT}",
+        "database": "${DB_NAME}",
+        "username": "${DB_USERNAME}",
+        "password": "${DB_PASSWORD}",
+        "ssl_mode": "require"
+      },
+      "api": {
+        "rate_limit_per_minute": 300,
+        "cache_enabled": true,
+        "debug_mode": false
+      },
+      "logging": {
+        "level": "WARNING"
+      }
+    }
+  },
+  "current_environment": "docker"
+}

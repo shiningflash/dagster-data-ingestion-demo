@@ -1,0 +1,56 @@
+{
+  "pipeline": {
+    "name": "weather_etl_pipeline",
+    "description": "Multi-source weather data ETL pipeline",
+    "version": "1.0.0",
+    "default_timezone": "UTC"
+  },
+  "api": {
+    "timeout": 30,
+    "retry_attempts": 3,
+    "retry_backoff_factor": 0.2,
+    "cache_ttl_seconds": 3600,
+    "max_concurrent_requests": 5,
+    "user_agent": "Dagster-Weather-ETL/1.0.0"
+  },
+  "database": {
+    "connection_pool_size": 10,
+    "connection_timeout": 30,
+    "query_timeout": 300,
+    "batch_size": 1000,
+    "default_schema": "public"
+  },
+  "logging": {
+    "level": "INFO",
+    "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "log_api_requests": true,
+    "log_data_stats": true
+  },
+  "monitoring": {
+    "enable_metrics": true,
+    "alert_on_failure": true,
+    "max_execution_time_minutes": 30,
+    "data_quality_checks": true
+  },
+  "data_quality": {
+    "enable_validation": true,
+    "max_null_percentage": 5,
+    "temperature_range": {
+      "min": -50,
+      "max": 60
+    },
+    "humidity_range": {
+      "min": 0,
+      "max": 100
+    },
+    "wind_speed_range": {
+      "min": 0,
+      "max": 200
+    }
+  },
+  "cleanup": {
+    "enable_auto_cleanup": true,
+    "cleanup_schedule": "0 2 * * *",
+    "vacuum_tables": true
+  }
+}
